@@ -16,9 +16,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeGenre, onGenreSelect, usage, ch
   return (
     <div className="w-64 h-full bg-white border-r border-gray-200 flex flex-col p-4 shadow-sm z-20">
       <div className="flex items-center gap-2 mb-8 px-2">
-        <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-orange-100">番</div>
+        <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-orange-100">金</div>
         <h1 className="text-xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent tracking-tighter">
-          AI 金牌写作
+          金牌写手
         </h1>
       </div>
       

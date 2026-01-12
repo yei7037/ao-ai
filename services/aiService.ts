@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 export type AIProvider = 'gemini' | 'openai' | 'deepseek' | 'grok';
 
@@ -10,156 +10,92 @@ export interface ModelConfig {
   modelName: string;
 }
 
+// 🧠 全局系统提示词｜中文母语写作逻辑（深度去 AI 痕迹版）
+const GLOBAL_SYSTEM_PROMPT = `
+你运行于【中文语境】下，默认读者为中文母语者。你不是文化讲解者，而是中文语境中工作的冷静编辑。
+
+【绝对优先级规则】
+1. 所有判断、分析、示例，必须基于中文文化直觉。禁止使用西式叙事逻辑、英语写作腔、翻译体结构。
+2. 禁止出现“心理学术语化”“西方价值模板化”表达。
+3. 禁止解释人物动机，禁止替人物把话说透，禁止“象征意义”“隐喻意义”解释。
+4. 任何显得“文学正确”或“教科书式完美”的表述，都视为 AI 痕迹。
+
+【语言风格强制约束】
+- 使用自然中文书面语，允许省略主语，允许短句、不完整句。
+- 允许语义留白。用“发生了什么”替代“感受到了什么”。
+- 禁止使用网络热梗（如“破防”“拿捏”），禁止“首先/其次/最后”的教学式结构。
+
+【文化与风俗】
+- 人物行为必须符合中国语境下的面子逻辑、人情往来、含蓄对抗。
+- 命名规则：人名像现实中见过的人，禁止明显“小说感姓名”或生僻字堆砌。
+- 冲突优先表现为：冷处理、表面和气内里较劲、话没说完意思到了。
+
+【身份约束】
+你是一个对“AI 痕迹”高度敏感的冷静编辑。任何看起来像“AI 很聪明”或“价值观很正”的表达，都是失败。
+`;
+
 export class AIService {
-  private getAuthHeaders(config: ModelConfig) {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`
-    };
-  }
+  async generateNovelContent(prompt: string, config: ModelConfig, onChunk: (text: string) => void, mode: 'male' | 'female' = 'male') {
+    const modeInstruction = mode === 'male' 
+      ? "【大男主内核】：秩序破坏者。不在乎名声，只在乎结果。容忍短期恶名换取长期掌控。写他在局面下计算代价而非胜率。"
+      : "【大女主内核】：规则重写者。清醒独立，拒绝正面博弈，擅长因果逆转。从不解释动机，只留下结果。";
 
-  private getDefaultUrl(provider: AIProvider) {
-    switch (provider) {
-      case 'openai': return 'https://api.openai.com/v1/chat/completions';
-      case 'deepseek': return 'https://api.deepseek.com/v1/chat/completions';
-      case 'grok': return 'https://api.x.ai/v1/chat/completions';
-      default: return '';
-    }
-  }
+    const fullPrompt = `${GLOBAL_SYSTEM_PROMPT}\n${modeInstruction}\n\n当前任务指令：${prompt}\n\n要求：直接撰写正文，严禁总结，结尾停在一个未完全说透的状态。`;
 
-  async testConnection(config: ModelConfig): Promise<boolean> {
-    const prompt = "ping";
-    try {
-      if (config.provider === 'gemini') {
-        const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-        });
-        return !!response.text;
-      } else {
-        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 5
-          })
-        });
-        return res.ok;
-      }
-    } catch (e) {
-      return false;
-    }
-  }
-
-  async generateNovelContent(prompt: string, config: ModelConfig, onChunk: (text: string) => void) {
     if (config.provider === 'gemini') {
       const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
       try {
         const response = await ai.models.generateContentStream({
           model: config.modelName || 'gemini-3-pro-preview',
-          contents: prompt,
-          config: { thinkingConfig: { thinkingBudget: 4000 } }
+          contents: fullPrompt,
+          config: { 
+            temperature: 0.45, // 适度提升随机性以避免模板化
+            topP: 0.85,
+            thinkingConfig: { thinkingBudget: 4000 }
+          }
         });
         for await (const chunk of response) {
           if (chunk.text) onChunk(chunk.text);
         }
       } catch (error) { throw error; }
-    } else {
-      const url = config.baseUrl || this.getDefaultUrl(config.provider);
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-            stream: true,
-            temperature: 0.8,
-          })
-        });
-        if (!response.ok) throw new Error("API Request Failed");
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        if (!reader) return;
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-              try {
-                const jsonStr = trimmed.replace(/^data: /, '');
-                const data = JSON.parse(jsonStr);
-                const text = data.choices[0]?.delta?.content;
-                if (text) onChunk(text);
-              } catch (e) {}
-            }
-          }
-        }
-      } catch (error) { throw error; }
     }
   }
 
-  async humanizeFix(content: string, advice: string, config: ModelConfig): Promise<string> {
-    const prompt = `你是一名顶级网文润色专家。以下这段文字AI味太重（平铺直叙、情感稀薄、逻辑过于完美）。
-    请根据以下优化建议进行重写，使其更具“人味”：
-    优化建议：${advice}
+  async remixTemplate(template: any, config: ModelConfig) {
+    const prompt = `${GLOBAL_SYSTEM_PROMPT}
+    基于以下小说模板，裂变生成一个新的、更具爆发力的爆款方案。
+    要求返回 JSON 格式，包含字段：title, description, worldSetting, protagonist, openingScene, conflict, highlight。
     
-    要求：
-    1. 增加主观偏见和情绪波动。
-    2. 加入符合语境的俚语或口语化表达。
-    3. 调整节奏，增加留白或突兀的转折。
-    4. 保持原意但彻底改变叙述口吻。
-    
-    原文字：
-    ${content}
-    
-    请直接返回重写后的正文内容，不要有任何多余的解释。`;
+    注意：命名要写实，冲突要符合人情世故，不要写成西方史诗或翻译剧。
+    原模板：${JSON.stringify(template)}`;
 
     if (config.provider === 'gemini') {
       const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt
-      });
-      return response.text || content;
-    } else {
-      const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-        method: 'POST',
-        headers: this.getAuthHeaders(config),
-        body: JSON.stringify({
-          model: config.modelName,
-          messages: [{ role: 'user', content: prompt }],
-        })
-      });
-      const data = await res.json();
-      return data.choices[0].message.content || content;
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { 
+            responseMimeType: 'application/json',
+            temperature: 0.8
+          }
+        });
+        return JSON.parse(response.text || '{}');
+      } catch (e) { throw e; }
     }
+    return template;
   }
 
   async analyzeContent(type: 'character' | 'emotion' | 'highlight' | 'cliffhanger' | 'deai', content: string, background: string, config: ModelConfig) {
     const prompts = {
-      character: `作为资深编辑，校验以下正文的人物一致性。背景设定：${background}。
-      请按JSON格式返回：{ "score": 分数0-10, "isConsistent": boolean, "analysis": "分析人设是否崩坏", "suggestions": ["修改建议1", "建议2"] }`,
-      emotion: `分析以下正文的情绪曲线。
-      请按JSON格式返回：{ "currentEmotion": "当前主要情绪", "curve": ["起", "承", "转", "合"], "intensity": 0-100, "advice": "如何加强情绪感染力" }`,
-      highlight: `基于番茄小说标准评估这段文字的“爽感”。
-      请按JSON格式返回：{ "rating": 0-10, "hooks": ["发现的爽点1", "爽点2"], "missing": "缺失的爆发点描述", "rewrite": "一句话改写建议让它更爽" }`,
-      cliffhanger: `检查这段文字的结尾是否具备“断章钩子”。
-      请按JSON格式返回：{ "hasHook": boolean, "hookStrength": 0-10, "analysis": "结尾钩子分析", "suggestions": ["如何改写结尾吸引读者翻页"] }`,
-      deai: `你是一个反AI痕迹检测专家。请扫描以下文本，识别出那些“太像AI写的”段落。
-      重点检测：情感过于平滑稳定、缺乏主观偏见、叙述逻辑过于连贯、过度解释设定。
-      请按JSON格式返回：{ "aiFlavorScore": 0-100 (分数越高AI感越强), "riskSegments": ["风险段落文字"], "analysis": "为何像AI的专业点评", "humanizeAdvice": ["如何改写得更像真人写的，例如增加俚语、调整节奏、加入主观偏见等"] }`
+      deai: `你是反 AI 痕迹检测器。重点查找：翻译腔、过于正确的价值观、教科书式的心理描写。`,
+      character: `你是角色偏见一致性校验。判断角色行为是否符合“中文社会人情逻辑”，是否写得太像“纸片人”或“圣母”。`,
+      emotion: `判断文本情绪是否由于过于平滑而显得虚假。寻找那些让读者不适或意外的“粗糙点”。`,
+      highlight: `分析这段文字是否在刻意讨好读者。真正的爽感来源于代价的真实和结果的突兀。`,
+      cliffhanger: `检查断章。如果是温和的结束，那就是失败。需要那种话里有话、阴影未散的恶意。`
     };
 
-    const prompt = prompts[type] + `\n\n正文内容：\n${content}\n\n只返回JSON。`;
+    const prompt = `${GLOBAL_SYSTEM_PROMPT}\n${prompts[type]}\n\n正文内容：\n${content}\n\n给出分析报告（JSON格式：{"analysis": "...", "riskSegments": ["..."]}）。语气要冷峻，甚至刻薄。`;
 
     if (config.provider === 'gemini') {
       const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
@@ -167,112 +103,25 @@ export class AIService {
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
-          config: { responseMimeType: 'application/json' }
+          config: { responseMimeType: 'application/json', temperature: 0.1 }
         });
         return JSON.parse(response.text || '{}');
       } catch (e) { return null; }
-    } else {
-      try {
-        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-          })
-        });
-        const data = await res.json();
-        const jsonMatch = data.choices[0].message.content.match(/\{[\s\S]*\}/);
-        return JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
-      } catch (e) { return null; }
     }
+    return null;
   }
 
   async getGenreTrends(genre: string, config: ModelConfig) {
-    const prompt = `分析“${genre}”题材。返回3个潜力方案。格式：JSON数组，字段：热门写作方向, 核心爽点, 受众群体, 代表性金手指设定, 关键词。`;
-    if (config.provider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || '[]');
-      } catch (e) { return null; }
-    } else {
-      try {
-        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-          })
-        });
-        const data = await res.json();
-        const jsonMatch = data.choices[0].message.content.match(/\[[\s\S]*\]/);
-        return JSON.parse(jsonMatch ? jsonMatch[0] : '[]');
-      } catch (e) { return null; }
-    }
-  }
-
-  async generateNames(genre: string, background: string, config: ModelConfig) {
-    const prompt = `题材“${genre}”，背景“${background}”。生成5组起名建议。JSON数组：[{category, name}]。`;
-    if (config.provider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || '[]');
-      } catch (e) { return []; }
-    } else {
-      try {
-        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-          })
-        });
-        const data = await res.json();
-        const jsonMatch = data.choices[0].message.content.match(/\[[\s\S]*\]/);
-        return JSON.parse(jsonMatch ? jsonMatch[0] : '[]');
-      } catch (e) { return []; }
-    }
-  }
-
-  async remixTemplate(template: any, config: ModelConfig): Promise<any> {
-    const prompt = `基于模板Remix：${JSON.stringify(template)}。JSON返回：{title, description, worldSetting, protagonist, openingScene, conflict, highlight}`;
-    if (config.provider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || '{}');
-      } catch (e) { throw e; }
-    } else {
-      try {
-        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
-          method: 'POST',
-          headers: this.getAuthHeaders(config),
-          body: JSON.stringify({
-            model: config.modelName,
-            messages: [{ role: 'user', content: prompt }],
-          })
-        });
-        const data = await res.json();
-        const jsonMatch = data.choices[0].message.content.match(/\{[\s\S]*\}/);
-        return JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
-      } catch (e) { throw e; }
-    }
+    const prompt = `${GLOBAL_SYSTEM_PROMPT}\n深入分析“${genre}”频道的当前流行趋势。
+    避开过时的套路，寻找那些潜伏在社交媒体情绪背后的爆点。
+    返回3个爆款方案（JSON数组）。`;
+    const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: { responseMimeType: 'application/json' }
+    });
+    return JSON.parse(response.text || '[]');
   }
 }
 

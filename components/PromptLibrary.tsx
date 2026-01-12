@@ -25,6 +25,8 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [remixingId, setRemixingId] = useState<string | null>(null);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [analysisReport, setAnalysisReport] = useState<{id: string, text: string} | null>(null);
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [newTpl, setNewTpl] = useState<Partial<PromptTemplate>>({});
 
@@ -74,7 +76,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
   const handleAutoGenerate = async () => {
     setIsAutoGenerating(true);
     try {
-      // 构造一个空的提示框架让 AI 发挥
       const baseTemplate = {
         genre: selectedGenre,
         title: `爆款${selectedGenre}灵感`,
@@ -118,6 +119,22 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
     }
   };
 
+  const handleDetectAI = async (e: React.MouseEvent, template: PromptTemplate) => {
+    e.stopPropagation();
+    setAnalyzingId(template.id);
+    try {
+      const content = `标题: ${template.title}\n设定: ${template.worldSetting}\n主角: ${template.protagonist}\n冲突: ${template.conflict}`;
+      const result = await aiService.analyzeContent('deai', content, template.worldSetting, modelConfig);
+      if (result) {
+        setAnalysisReport({ id: template.id, text: result.analysis || "分析完成" });
+      }
+    } catch (err) {
+      alert("分析失败");
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTpl.title) return;
@@ -145,7 +162,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* 手动添加卡片 */}
         <div 
           onClick={handleOpenAdding}
           className="group cursor-pointer p-6 bg-white border-2 border-dashed border-gray-200 rounded-3xl hover:border-orange-500 hover:bg-orange-50/20 transition-all flex flex-col items-center justify-center min-h-[220px]"
@@ -156,7 +172,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
           <span className="mt-4 text-gray-500 font-bold group-hover:text-orange-600 tracking-tight text-sm">手动添加灵感</span>
         </div>
 
-        {/* AI 自动裂变卡片 */}
         <div 
           onClick={handleAutoGenerate}
           className={`group cursor-pointer p-6 bg-gradient-to-br from-orange-500 to-red-600 rounded-3xl shadow-lg hover:shadow-orange-200 hover:-translate-y-1 transition-all flex flex-col items-center justify-center min-h-[220px] ${isAutoGenerating ? 'animate-pulse' : ''}`}
@@ -187,21 +202,47 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
               <span className={`inline-block px-2.5 py-1 text-[9px] font-black rounded-lg tracking-wider uppercase shadow-sm ${p.isCustom ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                 {p.genre}
               </span>
-              <button 
-                onClick={(e) => handleRemix(e, p)} 
-                title="基于此模板裂变新提示词"
-                className="p-2 bg-gray-50 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-xl transition-all"
-              >
-                {remixingId === p.id ? (
-                  <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a2 2 0 00-1.96 1.414l-.477 2.387a2 2 0 001.569 2.417l2.387.477a2 2 0 002.417-1.569l.477-2.387a2 2 0 00-.547-1.022z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.5 5.5l13 13m-13 0l13-13" />
-                  </svg>
-                )}
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={(e) => handleDetectAI(e, p)} 
+                  title="AI 味快速检测"
+                  className={`p-2 rounded-xl transition-all ${analysisReport?.id === p.id ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50'}`}
+                >
+                  {analyzingId === p.id ? (
+                    <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                  )}
+                </button>
+                <button 
+                  onClick={(e) => handleRemix(e, p)} 
+                  title="基于此模板裂变新提示词"
+                  className="p-2 bg-gray-50 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-xl transition-all"
+                >
+                  {remixingId === p.id ? (
+                    <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a2 2 0 00-1.96 1.414l-.477 2.387a2 2 0 001.569 2.417l2.387.477a2 2 0 002.417-1.569l.477-2.387a2 2 0 00-.547-1.022z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.5 5.5l13 13m-13 0l13-13" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
+            
+            {analysisReport?.id === p.id ? (
+              <div className="mb-4 p-3 bg-red-50 rounded-xl border border-red-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">AI 味诊断报告</span>
+                  <button onClick={(e) => { e.stopPropagation(); setAnalysisReport(null); }} className="text-red-300 hover:text-red-500">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+                <p className="text-[10px] text-red-700 leading-relaxed italic">{analysisReport.text}</p>
+              </div>
+            ) : null}
+
             <h4 className="text-xl font-bold text-gray-800 mb-3 group-hover:text-orange-600 transition-colors leading-tight line-clamp-2">
               {p.title}
             </h4>
@@ -247,17 +288,20 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
                 <input autoFocus className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-500/20 outline-none transition-all font-bold text-gray-800 text-lg" value={newTpl.title} onChange={e => setNewTpl({...newTpl, title: e.target.value})} />
               </div>
               
-              <div>
-                <label className="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-tighter">世界观框架</label>
+              <div className="col-span-2">
+                <label className="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-tighter flex items-center gap-2">
+                  世界观框架 
+                  <span className="bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded text-[8px] border border-orange-200" title="【背景约束】：确保所有设定都符合中国社会经验和文化背景，避免引入西方奇幻或科幻元素，人际关系需符合国内人情世故。">#本土化</span>
+                </label>
                 <input placeholder={genreData.placeholders.world} className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-500/20 outline-none" value={newTpl.worldSetting} onChange={e => setNewTpl({...newTpl, worldSetting: e.target.value})} />
               </div>
               
-              <div>
+              <div className="col-span-2 md:col-span-1">
                 <label className="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-tighter">核心主角档案</label>
                 <input placeholder={genreData.placeholders.hero} className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-500/20 outline-none" value={newTpl.protagonist} onChange={e => setNewTpl({...newTpl, protagonist: e.target.value})} />
               </div>
               
-              <div className="col-span-2">
+              <div className="col-span-2 md:col-span-1">
                 <label className="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-tighter">爆款爽点 (用于钩子提示)</label>
                 <input placeholder={genreData.placeholders.hook} className="w-full px-5 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-500/20 outline-none" value={newTpl.highlight} onChange={e => setNewTpl({...newTpl, highlight: e.target.value})} />
               </div>
