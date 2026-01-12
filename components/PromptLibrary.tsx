@@ -191,4 +191,27 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({
           className="group relative cursor-pointer p-6 bg-white border border-gray-100 rounded-2xl hover:border-orange-500 hover:shadow-xl transition-all flex flex-col h-full overflow-hidden"
         >
           <div className="flex justify-between items-start mb-4">
-            <span className={`inline-block px-2 py-1 text-[9px] font-bold rounded tracking-wider uppercase ${p.isCustom ? 'bg
+            <span className={`inline-block px-2 py-1 text-[9px] font-bold rounded tracking-wider uppercase ${p.isCustom ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500'}`}>
+              {p.genre}
+            </span>
+            <button onClick={(e) => handleRemix(e, p)} className="p-1.5 bg-gray-50 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-all">
+              <svg className={`w-4 h-4 ${remixingId === p.id ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+            </button>
+          </div>
+          <h4 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-orange-600 transition-colors">{p.title}</h4>
+          <p className="text-sm text-gray-500 line-clamp-2 mb-4 leading-relaxed">{p.conflict || p.description}</p>
+          <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between">
+             <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">爽点: {p.highlight?.slice(0, 10)}</span>
+             {p.isCustom && (
+                <button onClick={(e) => { e.stopPropagation(); onDeleteCustomTemplate(p.id); }} className="text-gray-200 hover:text-red-500 transition-colors">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+             )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default PromptLibrary;

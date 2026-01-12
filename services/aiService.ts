@@ -27,6 +27,34 @@ export class AIService {
     }
   }
 
+  async testConnection(config: ModelConfig): Promise<boolean> {
+    const prompt = "ping";
+    try {
+      if (config.provider === 'gemini') {
+        const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+        });
+        return !!response.text;
+      } else {
+        const res = await fetch(config.baseUrl || this.getDefaultUrl(config.provider), {
+          method: 'POST',
+          headers: this.getAuthHeaders(config),
+          body: JSON.stringify({
+            model: config.modelName,
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 5
+          })
+        });
+        return res.ok;
+      }
+    } catch (e) {
+      console.error("Connection test failed:", e);
+      return false;
+    }
+  }
+
   async generateNovelContent(prompt: string, config: ModelConfig, onChunk: (text: string) => void) {
     if (config.provider === 'gemini') {
       const ai = new GoogleGenAI({ apiKey: config.apiKey || process.env.API_KEY || '' });
