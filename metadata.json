@@ -1,0 +1,5 @@
+{
+  "name": "傲叔的 AI 小说助手",
+  "description": "A sophisticated AI-powered tool for novelists, featuring genre-specific prompt generation, hot trend analysis inspired by Fanqie Novel, and interactive chapter writing using Gemini 3.",
+  "requestFramePermissions": []
+}
