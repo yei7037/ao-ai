@@ -6,36 +6,47 @@ import GenreTrends from './components/GenreTrends';
 import { aiService, ModelConfig, AIProvider } from './services/aiService';
 import { Genre, PromptTemplate } from './types';
 
+interface Draft {
+  id: string;
+  genre: string;
+  background: string;
+  input: string;
+  content: string;
+  updatedAt: number;
+}
+
 const App: React.FC = () => {
   const [activeGenre, setActiveGenre] = useState<string>(() => localStorage.getItem('fanqie_active_genre') || Genre.BAZONG);
-  const [userInput, setUserInput] = useState(() => localStorage.getItem('fanqie_user_input') || '');
-  const [backgroundSetting, setBackgroundSetting] = useState(() => localStorage.getItem('fanqie_background') || ''); 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedContent, setGeneratedContent] = useState(() => localStorage.getItem('fanqie_generated_content') || '');
+  const [userInput, setUserInput] = useState('');
+  const [backgroundSetting, setBackgroundSetting] = useState(''); 
+  const [generatedContent, setGeneratedContent] = useState('');
+  
+  const [drafts, setDrafts] = useState<Draft[]>(() => {
+    const saved = localStorage.getItem('fanqie_drafts');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<'library' | 'editor'>('library');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false);
   const [trends, setTrends] = useState<any[] | null>(null);
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
   const [eyeProtection, setEyeProtection] = useState(false);
-  const [suggestedNames, setSuggestedNames] = useState<any[]>([]);
-  const [isGeneratingNames, setIsGeneratingNames] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<{type: string, data: any} | null>(null);
 
-  // 消耗统计状态
   const [usageStats, setUsageStats] = useState(() => {
     const saved = localStorage.getItem('fanqie_usage_stats');
-    return saved ? JSON.parse(saved) : { totalChars: 0, totalRequests: 0, sessionChars: 0 };
+    return saved ? JSON.parse(saved) : { totalChars: 0, totalRequests: 0 };
   });
 
   const [modelConfig, setModelConfig] = useState<ModelConfig>(() => {
     const saved = localStorage.getItem('fanqie_model_config');
-    if (saved) return JSON.parse(saved);
-    return {
-      provider: 'gemini',
-      apiKey: '',
-      modelName: 'gemini-3-pro-preview',
-      baseUrl: ''
-    };
+    return saved ? JSON.parse(saved) : { provider: 'gemini', apiKey: '', modelName: 'gemini-3-pro-preview' };
   });
 
   const [customTemplates, setCustomTemplates] = useState<PromptTemplate[]>(() => {
@@ -44,130 +55,157 @@ const App: React.FC = () => {
   });
 
   const contentEndRef = useRef<HTMLDivElement>(null);
-  const scrollToBottom = () => contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
   useEffect(() => {
     localStorage.setItem('fanqie_model_config', JSON.stringify(modelConfig));
-  }, [modelConfig]);
-
-  useEffect(() => {
     localStorage.setItem('fanqie_usage_stats', JSON.stringify(usageStats));
-  }, [usageStats]);
+    localStorage.setItem('fanqie_drafts', JSON.stringify(drafts));
+    localStorage.setItem('fanqie_custom_templates', JSON.stringify(customTemplates));
+    localStorage.setItem('fanqie_active_genre', activeGenre);
+  }, [modelConfig, usageStats, drafts, customTemplates, activeGenre]);
 
   useEffect(() => {
     const fetchTrends = async () => {
-      if (modelConfig.provider === 'gemini' && !modelConfig.apiKey && !process.env.API_KEY) return;
-      if (modelConfig.provider !== 'gemini' && !modelConfig.apiKey) return;
-      
+      if (!modelConfig.apiKey && modelConfig.provider !== 'gemini') return;
       setIsLoadingTrends(true);
       try {
         const data = await aiService.getGenreTrends(activeGenre, modelConfig);
         setTrends(data);
-      } catch (err) { 
-        setTrends(null); 
-      } finally { 
-        setIsLoadingTrends(false); 
-      }
+      } catch (err) { setTrends(null); } finally { setIsLoadingTrends(false); }
     };
     fetchTrends();
-  }, [activeGenre, modelConfig]);
+  }, [activeGenre, modelConfig.provider, modelConfig.apiKey]);
 
-  useEffect(() => {
-    localStorage.setItem('fanqie_user_input', userInput);
-    localStorage.setItem('fanqie_background', backgroundSetting);
-    localStorage.setItem('fanqie_generated_content', generatedContent);
-    localStorage.setItem('fanqie_active_genre', activeGenre);
-    localStorage.setItem('fanqie_custom_templates', JSON.stringify(customTemplates));
-  }, [userInput, backgroundSetting, generatedContent, activeGenre, customTemplates]);
-
-  const handleTestKey = async () => {
-    setTestStatus('testing');
-    const isOk = await aiService.testConnection(modelConfig);
-    setTestStatus(isOk ? 'success' : 'error');
-    setTimeout(() => setTestStatus('idle'), 3000);
+  const createNewDraft = (template?: PromptTemplate) => {
+    const newDraft: Draft = {
+      id: Date.now().toString(),
+      genre: template?.genre || activeGenre,
+      background: template?.worldSetting || '',
+      input: template ? `【开局场景】${template.openingScene}\n【冲突】${template.conflict}` : '',
+      content: '',
+      updatedAt: Date.now()
+    };
+    setDrafts([newDraft, ...drafts]);
+    loadDraft(newDraft);
   };
 
-  const handleClearLocalData = () => {
-    if (confirm('确定要清除本地保存的所有配置、草稿和 API Key 吗？此操作不可撤销。')) {
-      localStorage.clear();
-      window.location.reload();
-    }
-  };
-
-  const handleSelectTemplate = (template: PromptTemplate) => {
-    const preset = `【背景】${template.worldSetting}\n【冲突】${template.conflict}\n【爽点】${template.highlight}`;
-    setUserInput(preset);
-    setBackgroundSetting(template.worldSetting);
+  const loadDraft = (draft: Draft) => {
+    setActiveDraftId(draft.id);
+    setActiveGenre(draft.genre);
+    setBackgroundSetting(draft.background);
+    setUserInput(draft.input);
+    setGeneratedContent(draft.content);
     setActiveTab('editor');
+    setAnalysisResult(null);
   };
 
-  const handleGenerateNames = async () => {
-    if (modelConfig.provider !== 'gemini' && !modelConfig.apiKey) {
-      alert("请先配置 API Key");
-      setShowModelSettings(true);
-      return;
-    }
-    setIsGeneratingNames(true);
-    try {
-      const names = await aiService.generateNames(activeGenre, backgroundSetting, modelConfig);
-      setSuggestedNames(names);
-      setUsageStats(prev => ({ ...prev, totalRequests: prev.totalRequests + 1 }));
-    } catch (e) {
-      alert("起名失败，请检查配置。");
-    } finally { 
-      setIsGeneratingNames(false); 
+  const saveCurrentToDraft = () => {
+    if (!activeDraftId) return;
+    setDrafts(prev => prev.map(d => d.id === activeDraftId ? {
+      ...d,
+      genre: activeGenre,
+      background: backgroundSetting,
+      input: userInput,
+      content: generatedContent,
+      updatedAt: Date.now()
+    } : d));
+  };
+
+  const deleteDraft = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('确定删除此草稿吗？')) {
+      setDrafts(prev => prev.filter(d => d.id !== id));
+      if (activeDraftId === id) setActiveDraftId(null);
     }
   };
 
-  const handleStartWriting = async () => {
-    if (!userInput.trim()) return;
-    if (modelConfig.provider !== 'gemini' && !modelConfig.apiKey) {
-      alert("请先配置 API Key");
-      setShowModelSettings(true);
-      return;
-    }
-    setIsGenerating(true);
-    setGeneratedContent('');
-    setActiveTab('editor');
+  const handleExport = () => {
+    const element = document.createElement("a");
+    const file = new Blob([generatedContent], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `${activeGenre}_${new Date().toLocaleDateString()}.txt`;
+    document.body.appendChild(element);
+    element.click();
+  };
 
-    const styleInstruction = activeGenre === Genre.BAZONG 
-      ? "要求：极致的豪门阔绰感，男女主对话要充满禁欲和拉扯感，台词要霸气。" 
-      : "要求：节奏极快，三段内必有爽点。";
+  const handleStartWriting = async (isContinue: boolean = false) => {
+    if (!userInput.trim() && !isContinue) return;
+    if (!modelConfig.apiKey && modelConfig.provider !== 'gemini') { setShowModelSettings(true); return; }
     
-    const fullPrompt = `你是一名番茄金牌作家。题材：《${activeGenre}》。背景：${backgroundSetting}。内容：${userInput}。${styleInstruction}`;
+    if (isContinue) setIsContinuing(true); else setIsGenerating(true);
+    if (!isContinue) setGeneratedContent('');
+    
+    const context = isContinue ? generatedContent.slice(-1500) : "";
+    const styleInstruction = activeGenre === Genre.BAZONG ? "极致奢华，拉扯感，霸道总裁口吻。" : "节奏极快，高频率反转。";
+    
+    const prompt = isContinue 
+      ? `你是一名番茄金牌作家。请根据以下前文衔接续写正文。题材：《${activeGenre}》。背景：${backgroundSetting}。指令：${userInput || '顺着剧情往下写'}。\n\n【前文回顾】：\n${context}\n\n【接着写】：`
+      : `你是一名番茄金牌作家。题材：《${activeGenre}》。背景设定：${backgroundSetting}。当前指令：${userInput}。${styleInstruction}。请开始撰写正文：`;
     
     try {
       let charCount = 0;
-      await aiService.generateNovelContent(fullPrompt, modelConfig, (chunk) => {
-        setGeneratedContent(prev => prev + chunk);
-        charCount += chunk.length;
+      await aiService.generateNovelContent(prompt, modelConfig, (chunk) => {
+        setGeneratedContent(prev => {
+          const newContent = prev + chunk;
+          charCount += chunk.length;
+          return newContent;
+        });
+        if (contentEndRef.current) contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
       });
-      // 更新消耗统计
-      setUsageStats(prev => ({
-        ...prev,
-        totalChars: prev.totalChars + charCount,
-        sessionChars: prev.sessionChars + charCount,
-        totalRequests: prev.totalRequests + 1
-      }));
-    } catch (err: any) { 
-      alert(`生成失败: ${err.message}`); 
-    } finally { 
+      setUsageStats(prev => ({ ...prev, totalChars: prev.totalChars + charCount, totalRequests: prev.totalRequests + 1 }));
+      saveCurrentToDraft();
+    } catch (err: any) { alert(`生成失败: ${err.message}`); } finally { 
       setIsGenerating(false); 
+      setIsContinuing(false);
     }
   };
 
-  const quotaPercentage = Math.min((usageStats.totalChars / 1000000) * 100, 100); // 以100万字作为一个参考额度
+  const handleHumanizeFix = async () => {
+    if (!generatedContent || !analysisResult || analysisResult.type !== 'deai') return;
+    setIsFixing(true);
+    try {
+      const advice = analysisResult.data.humanizeAdvice?.join(' ') || "增加主观色彩和口语表达";
+      const fixedContent = await aiService.humanizeFix(generatedContent, advice, modelConfig);
+      setGeneratedContent(fixedContent);
+      setAnalysisResult(null);
+    } catch (e) { alert("修复失败"); } finally { setIsFixing(false); }
+  };
+
+  const runAnalysis = async (type: 'character' | 'emotion' | 'highlight' | 'cliffhanger' | 'deai') => {
+    if (!generatedContent) return;
+    setIsAnalyzing(true);
+    try {
+      const result = await aiService.analyzeContent(type, generatedContent, backgroundSetting, modelConfig);
+      setAnalysisResult({ type, data: result });
+    } catch (e) { alert("分析失败"); } finally { setIsAnalyzing(false); }
+  };
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-500 ${eyeProtection ? 'bg-[#f4ecd8]' : 'bg-gray-50'}`}>
       <Sidebar 
         activeGenre={activeGenre} 
         onGenreSelect={(g) => { setActiveGenre(g); setActiveTab('library'); }}
-        usage={{
-          totalChars: usageStats.totalChars,
-          percentage: quotaPercentage
-        }}
-      />
+        usage={{ totalChars: usageStats.totalChars, percentage: (usageStats.totalChars / 1000000) * 100 }}
+      >
+        <div className="mt-6 px-2">
+          <div className="flex items-center justify-between mb-2 px-2">
+            <span className="text-[10px] font-bold text-gray-400 uppercase">历史草稿箱</span>
+            <button onClick={() => createNewDraft()} className="text-[10px] font-bold text-orange-600 hover:text-orange-700">+ 新建</button>
+          </div>
+          <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+            {drafts.map(d => (
+              <div 
+                key={d.id} 
+                onClick={() => loadDraft(d)}
+                className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer text-xs transition-all ${activeDraftId === d.id ? 'bg-orange-100 text-orange-700 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                <span className="truncate flex-1">[{d.genre}] {d.input.slice(0, 10) || '未命名草稿'}...</span>
+                <button onClick={(e) => deleteDraft(d.id, e)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all ml-1">×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Sidebar>
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-8 shrink-0 z-10">
@@ -178,15 +216,11 @@ const App: React.FC = () => {
               <button onClick={() => setActiveTab('editor')} className={`px-5 py-1.5 text-sm font-bold rounded-lg transition-all ${activeTab === 'editor' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}>编辑器</button>
             </nav>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex flex-col items-end mr-2">
-              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">累计消耗字数</span>
-              <span className="text-xs font-bold text-gray-700">{(usageStats.totalChars / 1000).toFixed(1)}k / 1,000k</span>
-            </div>
-            <button onClick={() => setShowModelSettings(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-orange-500 hover:text-white rounded-xl text-xs font-bold text-gray-600 transition-all">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-              配置 API KEY
-            </button>
+          <div className="flex items-center gap-3">
+             <button onClick={() => setEyeProtection(!eyeProtection)} className={`p-2 rounded-xl transition-all ${eyeProtection ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-400'}`}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.364l-.707-.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+             </button>
+             <button onClick={() => setShowModelSettings(true)} className="px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-bold">设置</button>
           </div>
         </header>
 
@@ -194,46 +228,123 @@ const App: React.FC = () => {
           {activeTab === 'library' ? (
             <div className="max-w-6xl mx-auto space-y-10">
               <GenreTrends genre={activeGenre} trends={trends} isLoading={isLoadingTrends} />
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-800">创作模板库</h3>
+                <input 
+                  type="text" placeholder="搜索关键词..." 
+                  className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
               <PromptLibrary 
-                 selectedGenre={activeGenre} 
-                 modelConfig={modelConfig} 
-                 onSelectTemplate={handleSelectTemplate} 
+                 selectedGenre={activeGenre} modelConfig={modelConfig} 
+                 onSelectTemplate={(t) => { if(!activeDraftId) createNewDraft(t); else loadDraft({...t, id: activeDraftId, background: t.worldSetting, input: t.conflict, content: '', updatedAt: Date.now()}); }} 
                  customTemplates={customTemplates} 
                  onAddCustomTemplate={(t) => setCustomTemplates(prev => [{...t, id: Date.now().toString()}, ...prev])} 
                  onDeleteCustomTemplate={(id) => setCustomTemplates(prev => prev.filter(x => x.id !== id))} 
+                 searchTerm={searchTerm}
               />
             </div>
           ) : (
-            <div className="max-w-5xl mx-auto space-y-6">
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-                 <div className="flex gap-4">
-                   <div className="flex-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">世界观/金手指</label>
-                      <input value={backgroundSetting} onChange={(e) => setBackgroundSetting(e.target.value)} placeholder="设定世界观、金手指、主角身份..." className="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none" />
-                   </div>
-                   <button onClick={handleGenerateNames} disabled={isGeneratingNames} className="h-[44px] mt-5 px-4 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all flex items-center gap-2">
-                     {isGeneratingNames ? "..." : "一键起名"}
-                   </button>
-                 </div>
-                 <textarea value={userInput} onChange={(e) => setUserInput(e.target.value)} placeholder="输入具体章节指令..." className="w-full h-32 p-4 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500/20 resize-none text-gray-700 text-sm leading-relaxed outline-none" />
-                 <div className="flex justify-end">
-                    <button onClick={handleStartWriting} disabled={isGenerating || !userInput} className={`px-10 py-3 rounded-xl font-bold transition-all shadow-xl ${isGenerating || !userInput ? 'bg-gray-100 text-gray-400' : 'bg-orange-600 text-white hover:bg-orange-700 active:scale-95'}`}>
-                      {isGenerating ? "AI 创作中..." : "开始写作"}
-                    </button>
-                 </div>
-              </div>
-              <div className={`relative rounded-3xl shadow-xl p-12 min-h-[600px] transition-all duration-700 ${eyeProtection ? 'bg-[#fcf8ef] border-[#e8dfc4]' : 'bg-white border-gray-100'} border`}>
-                {isGenerating && (
-                  <div className="absolute top-4 right-8 flex items-center gap-2">
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-                    </span>
-                    <span className="text-[10px] font-bold text-orange-500 uppercase">实时 Token 消耗中</span>
+            <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8">
+              <div className="lg:col-span-3 space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                     <span className="text-[10px] font-bold text-orange-500 uppercase">创作区 {activeDraftId && `(草稿 #${activeDraftId.slice(-4)})`}</span>
+                     <button onClick={saveCurrentToDraft} className="text-[10px] font-bold text-gray-400 hover:text-orange-500 transition-all">手动存稿</button>
                   </div>
-                )}
-                <div className="max-w-2xl mx-auto font-serif text-lg leading-[2.2] text-gray-800">
-                  {generatedContent || <div className="text-center text-gray-300 py-20">等待 AI 灵感开启...</div>}
+                  <input value={backgroundSetting} onChange={(e) => setBackgroundSetting(e.target.value)} placeholder="完善世界观设定..." className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none" />
+                  <textarea value={userInput} onChange={(e) => setUserInput(e.target.value)} placeholder="输入当前章节指令或续写指令..." className="w-full h-32 p-4 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500/20 resize-none text-sm outline-none" />
+                  <div className="flex justify-end gap-3">
+                    <button onClick={() => handleStartWriting(true)} disabled={isContinuing || isGenerating || !generatedContent} className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50">
+                      {isContinuing ? "衔接中..." : "接着往下写"}
+                    </button>
+                    <button onClick={() => handleStartWriting(false)} disabled={isGenerating || isContinuing} className="px-10 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 shadow-lg active:scale-95 transition-all disabled:opacity-50">
+                      {isGenerating ? "生成中..." : "重写/开始本章"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`relative rounded-3xl shadow-xl p-10 min-h-[600px] border transition-all duration-700 ${eyeProtection ? 'bg-[#fcf8ef] border-[#e8dfc4]' : 'bg-white border-gray-100'}`}>
+                  {isContinuing && <div className="absolute inset-0 bg-orange-500/5 animate-pulse rounded-3xl pointer-events-none"></div>}
+                  <div className="absolute top-6 right-8 flex items-center gap-4">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">字数: {generatedContent.length}</span>
+                    {generatedContent && (
+                      <button onClick={handleExport} className="p-2 bg-gray-50 text-gray-400 hover:text-orange-600 rounded-lg transition-all" title="导出为TXT">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-w-2xl mx-auto prose prose-orange">
+                    {generatedContent ? (
+                      generatedContent.split('\n').map((line, i) => (
+                        <p key={i} className="mb-6 font-serif text-lg leading-[2.1] text-gray-800 text-justify">{line}</p>
+                      ))
+                    ) : (
+                      <div className="py-40 text-center text-gray-200 font-bold uppercase tracking-widest">等待 AI 灵感开启</div>
+                    )}
+                    <div ref={contentEndRef} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                  <h4 className="text-[10px] font-black text-gray-400 uppercase mb-4 flex items-center gap-2">金牌辅助插件</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'character', label: '人物校验', icon: '👤' },
+                      { id: 'emotion', label: '情绪结构', icon: '📈' },
+                      { id: 'highlight', label: '爽点评分', icon: '🔥' },
+                      { id: 'cliffhanger', label: '断章检测', icon: '🪝' },
+                      { id: 'deai', label: '去AI味', icon: '🛡️' }
+                    ].map(btn => (
+                      <button key={btn.id} onClick={() => runAnalysis(btn.id as any)} disabled={isAnalyzing || !generatedContent} className="p-3 bg-gray-50 border border-gray-100 rounded-xl flex flex-col items-center gap-1 hover:bg-white hover:shadow-md transition-all text-gray-600">
+                        <span className="text-lg">{btn.icon}</span>
+                        <span className="text-[10px] font-bold">{btn.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm min-h-[300px]">
+                  {isAnalyzing ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-3">
+                      <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-[10px] font-bold text-orange-500">正在扫描指纹...</span>
+                    </div>
+                  ) : analysisResult ? (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                      <div className="flex justify-between items-center">
+                        <h5 className="font-bold text-gray-800 text-sm">{analysisResult.type === 'deai' ? '🛡️ AI 指纹检测' : '解析报告'}</h5>
+                        <span className={`px-2 py-0.5 text-white text-[9px] font-bold rounded-full ${analysisResult.type === 'deai' && analysisResult.data.aiFlavorScore > 60 ? 'bg-red-500' : 'bg-orange-500'}`}>
+                          {analysisResult.type === 'deai' ? `AI味: ${analysisResult.data.aiFlavorScore}%` : `${(analysisResult.data.score || analysisResult.data.rating || 0)}/10`}
+                        </span>
+                      </div>
+                      
+                      <div className="text-[11px] text-gray-600 bg-gray-50 p-3 rounded-xl border italic leading-relaxed">
+                        {analysisResult.data.analysis || analysisResult.data.advice || "分析报告生成完毕。"}
+                      </div>
+
+                      {analysisResult.type === 'deai' && analysisResult.data.riskSegments?.length > 0 && (
+                        <div className="space-y-2">
+                           <button onClick={handleHumanizeFix} disabled={isFixing} className="w-full py-2.5 bg-gray-900 text-white rounded-xl text-[10px] font-bold hover:bg-orange-600 transition-all flex items-center justify-center gap-2">
+                             {isFixing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "⚡ 一键深度去味"}
+                           </button>
+                        </div>
+                      )}
+                      
+                      {(analysisResult.data.suggestions || analysisResult.data.humanizeAdvice)?.map((s: string, i: number) => (
+                        <div key={i} className="text-[10px] text-orange-700 bg-orange-50 p-2 rounded-lg border border-orange-100">💡 {s}</div>
+                      ))}
+                      <button onClick={() => setAnalysisResult(null)} className="w-full py-2 text-[9px] font-bold text-gray-300 hover:text-gray-500 uppercase">清除当前报告</button>
+                    </div>
+                  ) : (
+                    <div className="py-20 text-center opacity-20">
+                      <div className="text-3xl">📝</div>
+                      <div className="text-[10px] font-bold uppercase mt-2">点击辅助插件开启扫描</div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -243,60 +354,15 @@ const App: React.FC = () => {
         {showModelSettings && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[200] flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-gray-800">模型配置</h3>
-                <button onClick={() => setShowModelSettings(false)} className="text-gray-400 hover:text-gray-600">
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-
-              {/* 消耗统计显示 */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">总计请求</span>
-                  <p className="text-xl font-bold text-gray-800">{usageStats.totalRequests}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">累计字数</span>
-                  <p className="text-xl font-bold text-gray-800">{(usageStats.totalChars / 1000).toFixed(1)}k</p>
-                </div>
-              </div>
-
+              <h3 className="text-xl font-bold text-gray-800 mb-6 tracking-tight">配置中心</h3>
               <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 mb-2 block uppercase tracking-widest">服务商</label>
-                  <select className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none" value={modelConfig.provider} onChange={e => setModelConfig({...modelConfig, provider: e.target.value as AIProvider})}>
-                    <option value="gemini">Gemini (推荐)</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="deepseek">DeepSeek</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 mb-2 block uppercase tracking-widest">API Key</label>
-                  <div className="flex gap-2">
-                    <input type="password" placeholder="sk-..." className="flex-1 px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none text-sm" value={modelConfig.apiKey} onChange={e => setModelConfig({...modelConfig, apiKey: e.target.value})} />
-                    <button 
-                      onClick={handleTestKey}
-                      disabled={testStatus !== 'idle'}
-                      className={`px-4 rounded-xl text-xs font-bold transition-all ${
-                        testStatus === 'success' ? 'bg-green-500 text-white' : 
-                        testStatus === 'error' ? 'bg-red-500 text-white' : 
-                        'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {testStatus === 'testing' ? '...' : testStatus === 'success' ? '可用' : testStatus === 'error' ? '无效' : '测试'}
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 mb-2 block uppercase tracking-widest">模型名称</label>
-                  <input className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none text-sm" value={modelConfig.modelName} onChange={e => setModelConfig({...modelConfig, modelName: e.target.value})} />
-                </div>
-              </div>
-
-              <div className="mt-8 space-y-2">
-                <button onClick={() => setShowModelSettings(false)} className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold hover:bg-orange-700 shadow-xl shadow-orange-100 transition-all">保存并关闭</button>
-                <button onClick={handleClearLocalData} className="w-full py-2 text-red-400 text-[10px] font-bold hover:text-red-600 transition-colors uppercase tracking-widest">清除本地所有敏感数据</button>
+                <select className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-medium text-sm" value={modelConfig.provider} onChange={e => setModelConfig({...modelConfig, provider: e.target.value as AIProvider})}>
+                  <option value="gemini">Google Gemini (推荐)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                </select>
+                <input type="password" placeholder="API Key" className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm" value={modelConfig.apiKey} onChange={e => setModelConfig({...modelConfig, apiKey: e.target.value})} />
+                <button onClick={() => setShowModelSettings(false)} className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold shadow-xl active:scale-95 transition-all">保存并关闭</button>
               </div>
             </div>
           </div>

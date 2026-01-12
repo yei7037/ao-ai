@@ -1,5 +1,5 @@
 {
-  "name": "傲叔的 AI 小说助手",
-  "description": "A sophisticated AI-powered tool for novelists, featuring genre-specific prompt generation, hot trend analysis inspired by Fanqie Novel, and interactive chapter writing using Gemini 3.",
+  "name": "番茄 AI 小说金牌助手",
+  "description": "专为网文创作者设计的爆款辅助工具。内置番茄小说热门版块分析、流式章节生成、本地安全密钥管理。拒绝断更，从灵感到正文一气呵成。",
   "requestFramePermissions": []
 }

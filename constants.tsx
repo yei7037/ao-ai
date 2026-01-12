@@ -3,6 +3,7 @@ import { Genre, PromptTemplate } from './types';
 
 export const FANQIE_GENRES = [
   { name: Genre.BAZONG, icon: '💎', color: '#B37FEB' },
+  { name: Genre.MORI, icon: '☣️', color: '#72D817' },
   { name: Genre.XUANHUAN, icon: '🔥', color: '#FF4D4F' },
   { name: Genre.DUSHI, icon: '🌆', color: '#1890FF' },
   { name: Genre.XIANXIA, icon: '⚔️', color: '#722ED1' },
@@ -23,6 +24,30 @@ const DEFAULT_RULES = [
 
 export const PROMPT_TEMPLATES: PromptTemplate[] = [
   {
+    id: 'mr-1',
+    genre: Genre.MORI,
+    title: '【重生】末世囤货：开局百亿物资',
+    description: '重回末世前三天，变卖家产只为囤积物资。',
+    worldSetting: '极端高温，丧尸爆发，人性沦丧的废土',
+    protagonist: '张岳（重生者，空间系异能，冷酷理智）',
+    openingScene: '在五星级酒店疯狂订购一万份顶级外卖，周围人都在看疯子',
+    conflict: '前世害死他的白莲花邻居又来敲门借粮',
+    highlight: '我在零下50度的避难所里吃火锅，邻居在外面冻成冰雕',
+    writingRules: [...DEFAULT_RULES, '极致的物资对比', '冷酷的生存法则']
+  },
+  {
+    id: 'mr-2',
+    genre: Genre.MORI,
+    title: '【系统】我在末世建堡垒',
+    description: '获得神级避难所系统，无限升级设施。',
+    worldSetting: '生化危机爆发后的荒废城市',
+    protagonist: '苏白（堡垒领主，杀伐果断）',
+    openingScene: '丧尸包围超市，苏白激活系统，一键生成全自动化机枪塔',
+    conflict: '附近的掠夺者营地盯上了堡垒的电力资源',
+    highlight: '敌人开着破烂装甲车，苏白按下按钮，电磁轨道炮升起',
+    writingRules: [...DEFAULT_RULES, '建筑升级的数值成长感', '降维打击的快感']
+  },
+  {
     id: 'bz-2',
     genre: Genre.BAZONG,
     title: '【惊喜】闪婚老公是大佬',
@@ -33,18 +58,6 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     conflict: '以为对方是普通保镖，回家发现车队欢迎',
     highlight: '男人宣称：陆太太，是你招惹了我',
     writingRules: [...DEFAULT_RULES, '豪门氛围极致奢华', '极致张力与拉扯']
-  },
-  {
-    id: 'bz-1',
-    genre: Genre.BAZONG,
-    title: '【闪婚】千亿大佬宠上天',
-    description: '民政局门口捡个老公，竟然是全球首富。',
-    worldSetting: '京城豪门，顶级财阀陆氏，现代都市职场。',
-    protagonist: '苏软软，破产千金，坚韧清冷；陆霆骁，陆氏家主，禁欲狠戾。',
-    openingScene: '沈家逼婚，苏软软在民政局门口随手拉住一个帅气路人：“先生，领证吗？”',
-    conflict: '以为对方只是个普通保镖，结果回家发现百辆劳斯莱斯夹道欢迎。',
-    highlight: '男人掐住她的细腰，嗓音暗哑：“陆太太，撩完就想跑？”',
-    writingRules: [...DEFAULT_RULES, '豪门氛围感描写要极致奢华', '男女主互动要充满张力']
   },
   {
     id: 'xh-1',

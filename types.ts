@@ -9,6 +9,7 @@ export enum Genre {
   CHUANYUE = '穿越',
   ZHANCHENG = '战神',
   BAZONG = '霸总',
+  MORI = '末日',
   CUSTOM = '自定义'
 }
 
